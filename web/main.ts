@@ -3066,7 +3066,7 @@ class GitGraphView {
 					{
 						title: 'View Diff',
 						visible: visibility.viewDiff && diffPossible,
-						onClick: () => triggerViewFileDiff(file, fileElem)
+						onClick: () => triggerViewFileDiff(file, fileElem, false)
 					},
 					{
 						title: 'View Diff in External Difftool',
