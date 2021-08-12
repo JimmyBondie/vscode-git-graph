@@ -1431,15 +1431,26 @@ class GitGraphView {
 				title: 'Push Tag' + ELLIPSIS,
 				visible: visibility.push && this.gitRemotes.length > 0,
 				onClick: () => {
+					const runPushTagAction = (remotes: string[]) => {
+						runAction({
+							command: 'pushTag',
+							repo: this.currentRepo,
+							tagName: tagName,
+							remotes: remotes,
+							commitHash: hash,
+							skipRemoteCheck: globalState.pushTagSkipRemoteCheck
+						}, 'Pushing Tag');
+					};
+
 					if (this.gitRemotes.length === 1) {
 						dialog.showConfirmation('Are you sure you want to push the tag <b><i>' + escapeHtml(tagName) + '</i></b> to the remote <b><i>' + escapeHtml(this.gitRemotes[0]) + '</i></b>?', 'Yes, push', () => {
-							runAction({ command: 'pushTag', repo: this.currentRepo, tagName: tagName, remotes: [this.gitRemotes[0]] }, 'Pushing Tag');
+							runPushTagAction([this.gitRemotes[0]]);
 						}, target);
 					} else if (this.gitRemotes.length > 1) {
 						const defaults = [this.getPushRemote()];
 						const options = this.gitRemotes.map((remote) => ({ name: remote, value: remote }));
 						dialog.showMultiSelect('Are you sure you want to push the tag <b><i>' + escapeHtml(tagName) + '</i></b>? Select the remote(s) to push the tag to:', defaults, options, 'Yes, push', (remotes) => {
-							runAction({ command: 'pushTag', repo: this.currentRepo, tagName: tagName, remotes: remotes }, 'Pushing Tag');
+							runPushTagAction(remotes);
 						}, target);
 					}
 				}
@@ -1580,14 +1591,28 @@ class GitGraphView {
 					? this.gitRemotes[0]
 					: null;
 
+			const runAddTagAction = (force: boolean) => {
+				runAction({
+					command: 'addTag',
+					repo: this.currentRepo,
+					tagName: tagName,
+					commitHash: hash,
+					type: type,
+					message: message,
+					pushToRemote: pushToRemote,
+					pushSkipRemoteCheck: globalState.pushTagSkipRemoteCheck,
+					force: force
+				}, 'Adding Tag');
+			};
+
 			if (this.gitTags.includes(tagName)) {
 				dialog.showTwoButtons('A tag named <b><i>' + escapeHtml(tagName) + '</i></b> already exists, do you want to replace it with this new tag?', 'Yes, replace the existing tag', () => {
-					runAction({ command: 'addTag', repo: this.currentRepo, tagName: tagName, commitHash: hash, type: type, message: message, pushToRemote: pushToRemote, force: true }, 'Adding Tag');
+					runAddTagAction(true);
 				}, 'No, choose another tag name', () => {
 					this.addTagAction(hash, tagName, type, message, pushToRemote, target, false);
 				}, target);
 			} else {
-				runAction({ command: 'addTag', repo: this.currentRepo, tagName: tagName, commitHash: hash, type: type, message: message, pushToRemote: pushToRemote, force: false }, 'Adding Tag');
+				runAddTagAction(false);
 			}
 		}, target);
 	}
@@ -2920,6 +2945,20 @@ class GitGraphView {
 			sendMessage({ command: 'copyFilePath', repo: this.currentRepo, filePath: file.newFilePath, absolute: absolute });
 		};
 
+		const triggerResetFileToRevision = (file: GG.GitFileChange, fileElem: HTMLElement) => {
+			const expandedCommit = this.expandedCommit;
+			if (expandedCommit === null) return;
+
+			const commitHash = getCommitHashForFile(file, expandedCommit);
+			dialog.showConfirmation('Are you sure you want to reset <b><i>' + escapeHtml(file.newFilePath) + '</i></b> to it\'s state at commit <b><i>' + abbrevCommit(commitHash) + '</i></b>? Any uncommitted changes made to this file will be overwritten.', 'Yes, reset file', () => {
+				runAction({ command: 'resetFileToRevision', repo: this.currentRepo, commitHash: commitHash, filePath: file.newFilePath }, 'Resetting file');
+			}, {
+				type: TargetType.CommitDetailsView,
+				hash: commitHash,
+				elem: fileElem
+			});
+		};
+
 		const triggerViewFileAtRevision = (file: GG.GitFileChange, fileElem: HTMLElement) => {
 			const expandedCommit = this.expandedCommit;
 			if (expandedCommit === null) return;
@@ -3017,58 +3056,67 @@ class GitGraphView {
 				elem: fileElem
 			};
 			const diffPossible = file.type === GG.GitFileStatus.Untracked || (file.additions !== null && file.deletions !== null);
-			const fileExistsAtThisRevisionAndDiffPossible = file.type !== GG.GitFileStatus.Deleted && diffPossible && !isUncommitted;
+			const fileExistsAtThisRevision = file.type !== GG.GitFileStatus.Deleted && !isUncommitted;
+			const fileExistsAtThisRevisionAndDiffPossible = fileExistsAtThisRevision && diffPossible;
 			const codeReviewInProgressAndNotReviewed = expandedCommit.codeReview !== null && expandedCommit.codeReview.remainingFiles.includes(file.newFilePath);
+			const visibility = this.config.contextMenuActionsVisibility.commitDetailsViewFile;
 
 			contextMenu.show([
 				[
 					{
 						title: 'View Diff',
-						visible: diffPossible,
-						onClick: () => triggerViewFileDiff(file, fileElem, false)
+						visible: visibility.viewDiff && diffPossible,
+						onClick: () => triggerViewFileDiff(file, fileElem)
 					},
 					{
 						title: 'View Diff in External Difftool',
-						visible: diffPossible,
+						visible: visibility.viewDiff && diffPossible,
 						onClick: () => triggerViewFileDiff(file, fileElem, true)
 					},
 					{
 						title: 'View File at this Revision',
-						visible: fileExistsAtThisRevisionAndDiffPossible,
+						visible: visibility.viewFileAtThisRevision && fileExistsAtThisRevisionAndDiffPossible,
 						onClick: () => triggerViewFileAtRevision(file, fileElem)
 					},
 					{
 						title: 'View Diff with Working File',
-						visible: fileExistsAtThisRevisionAndDiffPossible,
+						visible: visibility.viewDiffWithWorkingFile && fileExistsAtThisRevisionAndDiffPossible,
 						onClick: () => triggerViewFileDiffWithWorkingFile(file, fileElem)
 					},
 					{
 						title: 'Open File',
-						visible: file.type !== GG.GitFileStatus.Deleted,
+						visible: visibility.openFile && file.type !== GG.GitFileStatus.Deleted,
 						onClick: () => triggerOpenFile(file, fileElem)
 					}
 				],
 				[
 					{
 						title: 'Mark as Reviewed',
-						visible: codeReviewInProgressAndNotReviewed,
+						visible: visibility.markAsReviewed && codeReviewInProgressAndNotReviewed,
 						onClick: () => this.cdvUpdateFileState(file, fileElem, true, false)
 					},
 					{
 						title: 'Mark as Not Reviewed',
-						visible: expandedCommit.codeReview !== null && !codeReviewInProgressAndNotReviewed,
+						visible: visibility.markAsNotReviewed && expandedCommit.codeReview !== null && !codeReviewInProgressAndNotReviewed,
 						onClick: () => this.cdvUpdateFileState(file, fileElem, false, false)
 					}
 				],
 				[
 					{
+						title: 'Reset File to this Revision' + ELLIPSIS,
+						visible: visibility.resetFileToThisRevision && fileExistsAtThisRevision && expandedCommit.compareWithHash === null,
+						onClick: () => triggerResetFileToRevision(file, fileElem)
+					}
+				],
+				[
+					{
 						title: 'Copy Absolute File Path to Clipboard',
-						visible: true,
+						visible: visibility.copyAbsoluteFilePath,
 						onClick: () => triggerCopyFilePath(file, true)
 					},
 					{
 						title: 'Copy Relative File Path to Clipboard',
-						visible: true,
+						visible: visibility.copyRelativeFilePath,
 						onClick: () => triggerCopyFilePath(file, false)
 					}
 				]
@@ -3171,7 +3219,12 @@ window.addEventListener('load', () => {
 				refreshOrDisplayError(msg.error, 'Unable to Add Remote', true);
 				break;
 			case 'addTag':
-				refreshAndDisplayErrors(msg.errors, 'Unable to Add Tag');
+				if (msg.pushToRemote !== null && msg.errors.length === 2 && msg.errors[0] === null && isExtensionErrorInfo(msg.errors[1], GG.ErrorInfoExtensionPrefix.PushTagCommitNotOnRemote)) {
+					gitGraph.refresh(false);
+					handleResponsePushTagCommitNotOnRemote(msg.repo, msg.tagName, [msg.pushToRemote], msg.commitHash, msg.errors[1]!);
+				} else {
+					refreshAndDisplayErrors(msg.errors, 'Unable to Add Tag');
+				}
 				break;
 			case 'applyStash':
 				refreshOrDisplayError(msg.error, 'Unable to Apply Stash');
@@ -3313,7 +3366,11 @@ window.addEventListener('load', () => {
 				refreshOrDisplayError(msg.error, 'Unable to Stash Uncommitted Changes');
 				break;
 			case 'pushTag':
-				refreshAndDisplayErrors(msg.errors, 'Unable to Push Tag');
+				if (msg.errors.length === 1 && isExtensionErrorInfo(msg.errors[0], GG.ErrorInfoExtensionPrefix.PushTagCommitNotOnRemote)) {
+					handleResponsePushTagCommitNotOnRemote(msg.repo, msg.tagName, msg.remotes, msg.commitHash, msg.errors[0]!);
+				} else {
+					refreshAndDisplayErrors(msg.errors, 'Unable to Push Tag');
+				}
 				break;
 			case 'rebase':
 				if (msg.error === null) {
@@ -3331,6 +3388,9 @@ window.addEventListener('load', () => {
 				break;
 			case 'renameBranch':
 				refreshOrDisplayError(msg.error, 'Unable to Rename Branch');
+				break;
+			case 'resetFileToRevision':
+				refreshOrDisplayError(msg.error, 'Unable to Reset File to Revision');
 				break;
 			case 'resetToCommit':
 				refreshOrDisplayError(msg.error, 'Unable to Reset to Commit');
@@ -3388,6 +3448,30 @@ window.addEventListener('load', () => {
 		}
 	}
 
+	function handleResponsePushTagCommitNotOnRemote(repo: string, tagName: string, remotes: string[], commitHash: string, error: string) {
+		const remotesNotContainingCommit: string[] = parseExtensionErrorInfo(error, GG.ErrorInfoExtensionPrefix.PushTagCommitNotOnRemote);
+
+		const html = '<span class="dialogAlert">' + SVG_ICONS.alert + 'Warning: Commit is not on Remote' + (remotesNotContainingCommit.length > 1 ? 's ' : ' ') + '</span><br>' +
+			'<span class="messageContent">' +
+			'<p style="margin:0 0 6px 0;">The tag <b><i>' + escapeHtml(tagName) + '</i></b> is on a commit that isn\'t on any known branch on the remote' + (remotesNotContainingCommit.length > 1 ? 's' : '') + ' ' + formatCommaSeparatedList(remotesNotContainingCommit.map((remote) => '<b><i>' + escapeHtml(remote) + '</i></b>')) + '.</p>' +
+			'<p style="margin:0;">Would you like to proceed to push the tag to the remote' + (remotes.length > 1 ? 's' : '') + ' ' + formatCommaSeparatedList(remotes.map((remote) => '<b><i>' + escapeHtml(remote) + '</i></b>')) + ' anyway?</p>' +
+			'</span>';
+
+		dialog.showForm(html, [{ type: DialogInputType.Checkbox, name: 'Always Proceed', value: false }], 'Proceed to Push', (values) => {
+			if (<boolean>values[0]) {
+				updateGlobalViewState('pushTagSkipRemoteCheck', true);
+			}
+			runAction({
+				command: 'pushTag',
+				repo: repo,
+				tagName: tagName,
+				remotes: remotes,
+				commitHash: commitHash,
+				skipRemoteCheck: true
+			}, 'Pushing Tag');
+		}, { type: TargetType.Repo }, 'Cancel', null, true);
+	}
+
 	function refreshOrDisplayError(error: GG.ErrorInfo, errorMessage: string, configChanges: boolean = false) {
 		if (error === null) {
 			gitGraph.refresh(false, configChanges);
@@ -3438,6 +3522,26 @@ window.addEventListener('load', () => {
 			error: error,
 			partialOrCompleteSuccess: partialOrCompleteSuccess
 		};
+	}
+
+	/**
+	 * Checks whether the given ErrorInfo has an ErrorInfoExtensionPrefix.
+	 * @param error The ErrorInfo to check.
+	 * @param prefix The ErrorInfoExtensionPrefix to test.
+	 * @returns TRUE => ErrorInfo has the ErrorInfoExtensionPrefix, FALSE => ErrorInfo doesn\'t have the ErrorInfoExtensionPrefix
+	 */
+	function isExtensionErrorInfo(error: GG.ErrorInfo, prefix: GG.ErrorInfoExtensionPrefix) {
+		return error !== null && error.startsWith(prefix);
+	}
+
+	/**
+	 * Parses the JSON data from an ErrorInfo prefixed by the provided ErrorInfoExtensionPrefix.
+	 * @param error The ErrorInfo to parse.
+	 * @param prefix The ErrorInfoExtensionPrefix used by `error`.
+	 * @returns The parsed JSON data.
+	 */
+	function parseExtensionErrorInfo(error: string, prefix: GG.ErrorInfoExtensionPrefix) {
+		return JSON.parse(error.substring(prefix.length));
 	}
 });
 

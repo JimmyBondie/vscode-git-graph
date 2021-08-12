@@ -4966,31 +4966,6 @@ describe('DataSource', () => {
 		});
 	});
 
-	describe('pushTag', () => {
-		it('Should push a tag to the remote', async () => {
-			// Setup
-			mockGitSuccessOnce();
-
-			// Run
-			const result = await dataSource.pushTag('/path/to/repo', 'tag-name', 'origin');
-
-			// Assert
-			expect(result).toBe(null);
-			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['push', 'origin', 'tag-name'], expect.objectContaining({ cwd: '/path/to/repo' }));
-		});
-
-		it('Should return an error message thrown by git', async () => {
-			// Setup
-			mockGitThrowingErrorOnce();
-
-			// Run
-			const result = await dataSource.pushTag('/path/to/repo', 'tag-name', 'origin');
-
-			// Assert
-			expect(result).toBe('error message');
-		});
-	});
-
 	describe('pushBranchToMultipleRemotes', () => {
 		it('Should push a branch to one remote', async () => {
 			// Setup
@@ -5041,13 +5016,13 @@ describe('DataSource', () => {
 		});
 	});
 
-	describe('pushTagToMultipleRemotes', () => {
+	describe('pushTag', () => {
 		it('Should push a tag to one remote', async () => {
 			// Setup
 			mockGitSuccessOnce();
 
 			// Run
-			const result = await dataSource.pushTagToMultipleRemotes('/path/to/repo', 'tag-name', ['origin']);
+			const result = await dataSource.pushTag('/path/to/repo', 'tag-name', ['origin'], '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', true);
 
 			// Assert
 			expect(result).toStrictEqual([null]);
@@ -5060,12 +5035,131 @@ describe('DataSource', () => {
 			mockGitSuccessOnce();
 
 			// Run
-			const result = await dataSource.pushTagToMultipleRemotes('/path/to/repo', 'tag-name', ['origin', 'other-origin']);
+			const result = await dataSource.pushTag('/path/to/repo', 'tag-name', ['origin', 'other-origin'], '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', true);
 
 			// Assert
 			expect(result).toStrictEqual([null, null]);
 			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['push', 'origin', 'tag-name'], expect.objectContaining({ cwd: '/path/to/repo' }));
 			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['push', 'other-origin', 'tag-name'], expect.objectContaining({ cwd: '/path/to/repo' }));
+		});
+
+		describe('Should check that the commit exists on each remote the tag is being pushed to', () => {
+			it('Commit exists on all remotes', async () => {
+				// Setup
+				mockGitSuccessOnce(
+					'  origin/master\n' +
+					'  other-origin/master\n'
+				);
+				mockGitSuccessOnce();
+				mockGitSuccessOnce();
+
+				// Run
+				const result = await dataSource.pushTag('/path/to/repo', 'tag-name', ['origin', 'other-origin'], '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', false);
+
+				// Assert
+				expect(result).toStrictEqual([null, null]);
+				expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['branch', '-r', '--no-color', '--contains=1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b'], expect.objectContaining({ cwd: '/path/to/repo' }));
+				expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['push', 'origin', 'tag-name'], expect.objectContaining({ cwd: '/path/to/repo' }));
+				expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['push', 'other-origin', 'tag-name'], expect.objectContaining({ cwd: '/path/to/repo' }));
+			});
+
+			it('Commit exists on one remote', async () => {
+				// Setup
+				mockGitSuccessOnce(
+					'  origin/master\n'
+				);
+
+				// Run
+				const result = await dataSource.pushTag('/path/to/repo', 'tag-name', ['origin', 'other-origin'], '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', false);
+
+				// Assert
+				expect(result).toStrictEqual(['VSCODE_GIT_GRAPH:PUSH_TAG:COMMIT_NOT_ON_REMOTE:[\"other-origin\"]']);
+				expect(spyOnSpawn).toHaveBeenCalledTimes(1);
+				expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['branch', '-r', '--no-color', '--contains=1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b'], expect.objectContaining({ cwd: '/path/to/repo' }));
+			});
+
+			it('Commit doesn\'t exist on any remote', async () => {
+				// Setup
+				mockGitSuccessOnce('');
+
+				// Run
+				const result = await dataSource.pushTag('/path/to/repo', 'tag-name', ['origin', 'other-origin'], '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', false);
+
+				// Assert
+				expect(result).toStrictEqual(['VSCODE_GIT_GRAPH:PUSH_TAG:COMMIT_NOT_ON_REMOTE:[\"origin\",\"other-origin\"]']);
+				expect(spyOnSpawn).toHaveBeenCalledTimes(1);
+				expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['branch', '-r', '--no-color', '--contains=1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b'], expect.objectContaining({ cwd: '/path/to/repo' }));
+			});
+
+			it('Handles remote branches with symbolic references', async () => {
+				// Setup
+				mockGitSuccessOnce(
+					'  origin/HEAD -> origin/master\n' +
+					'  other-origin/master\n'
+				);
+				mockGitSuccessOnce();
+				mockGitSuccessOnce();
+
+				// Run
+				const result = await dataSource.pushTag('/path/to/repo', 'tag-name', ['origin', 'other-origin'], '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', false);
+
+				// Assert
+				expect(result).toStrictEqual([null, null]);
+				expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['branch', '-r', '--no-color', '--contains=1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b'], expect.objectContaining({ cwd: '/path/to/repo' }));
+				expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['push', 'origin', 'tag-name'], expect.objectContaining({ cwd: '/path/to/repo' }));
+				expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['push', 'other-origin', 'tag-name'], expect.objectContaining({ cwd: '/path/to/repo' }));
+			});
+
+			it('Handles remote names that contain slashes', async () => {
+				// Setup
+				mockGitSuccessOnce(
+					'  origin/master\n' +
+					'  other/origin/master\n'
+				);
+				mockGitSuccessOnce();
+				mockGitSuccessOnce();
+
+				// Run
+				const result = await dataSource.pushTag('/path/to/repo', 'tag-name', ['origin', 'other/origin'], '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', false);
+
+				// Assert
+				expect(result).toStrictEqual([null, null]);
+				expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['branch', '-r', '--no-color', '--contains=1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b'], expect.objectContaining({ cwd: '/path/to/repo' }));
+				expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['push', 'origin', 'tag-name'], expect.objectContaining({ cwd: '/path/to/repo' }));
+				expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['push', 'other/origin', 'tag-name'], expect.objectContaining({ cwd: '/path/to/repo' }));
+			});
+
+			it('Ignores records that aren\'t branches in the git branch output', async () => {
+				// Setup
+				mockGitSuccessOnce(
+					'  (invalid branch)\n' +
+					'  other-origin/master\n'
+				);
+
+				// Run
+				const result = await dataSource.pushTag('/path/to/repo', 'tag-name', ['origin', 'other-origin'], '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', false);
+
+				// Assert
+				expect(result).toStrictEqual(['VSCODE_GIT_GRAPH:PUSH_TAG:COMMIT_NOT_ON_REMOTE:[\"origin\"]']);
+				expect(spyOnSpawn).toHaveBeenCalledTimes(1);
+				expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['branch', '-r', '--no-color', '--contains=1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b'], expect.objectContaining({ cwd: '/path/to/repo' }));
+			});
+
+			it('Ignores when Git throws an exception', async () => {
+				// Setup
+				mockGitThrowingErrorOnce();
+				mockGitSuccessOnce();
+				mockGitSuccessOnce();
+
+				// Run
+				const result = await dataSource.pushTag('/path/to/repo', 'tag-name', ['origin', 'other-origin'], '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', false);
+
+				// Assert
+				expect(result).toStrictEqual([null, null]);
+				expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['branch', '-r', '--no-color', '--contains=1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b'], expect.objectContaining({ cwd: '/path/to/repo' }));
+				expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['push', 'origin', 'tag-name'], expect.objectContaining({ cwd: '/path/to/repo' }));
+				expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['push', 'other-origin', 'tag-name'], expect.objectContaining({ cwd: '/path/to/repo' }));
+			});
 		});
 
 		it('Should push a tag to multiple remotes, stopping if an error occurs', async () => {
@@ -5074,7 +5168,7 @@ describe('DataSource', () => {
 			mockGitThrowingErrorOnce();
 
 			// Run
-			const result = await dataSource.pushTagToMultipleRemotes('/path/to/repo', 'tag-name', ['origin', 'other-origin', 'another-origin']);
+			const result = await dataSource.pushTag('/path/to/repo', 'tag-name', ['origin', 'other-origin', 'another-origin'], '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', true);
 
 			// Assert
 			expect(result).toStrictEqual([null, 'error message']);
@@ -5084,7 +5178,7 @@ describe('DataSource', () => {
 
 		it('Should return an error when no remotes are specified', async () => {
 			// Run
-			const result = await dataSource.pushTagToMultipleRemotes('/path/to/repo', 'tag-name', []);
+			const result = await dataSource.pushTag('/path/to/repo', 'tag-name', [], '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', true);
 
 			// Assert
 			expect(result).toStrictEqual(['No remote(s) were specified to push the tag tag-name to.']);
@@ -6337,6 +6431,31 @@ describe('DataSource', () => {
 
 			// Run
 			const result = await dataSource.cleanUntrackedFiles('/path/to/repo', false);
+
+			// Assert
+			expect(result).toBe('error message');
+		});
+	});
+
+	describe('resetFileToRevision', () => {
+		it('Should reset file to revision', async () => {
+			// Setup
+			mockGitSuccessOnce();
+
+			// Run
+			const result = await dataSource.resetFileToRevision('/path/to/repo', '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', 'path/to/file');
+
+			// Assert
+			expect(result).toBe(null);
+			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['checkout', '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', '--', 'path/to/file'], expect.objectContaining({ cwd: '/path/to/repo' }));
+		});
+
+		it('Should return an error message thrown by git', async () => {
+			// Setup
+			mockGitThrowingErrorOnce();
+
+			// Run
+			const result = await dataSource.resetFileToRevision('/path/to/repo', '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', 'path/to/file');
 
 			// Assert
 			expect(result).toBe('error message');

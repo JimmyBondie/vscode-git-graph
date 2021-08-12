@@ -181,9 +181,16 @@ export class GitGraphView extends Disposable {
 			case 'addTag':
 				errorInfos = [await this.dataSource.addTag(msg.repo, msg.tagName, msg.commitHash, msg.type, msg.message, msg.force)];
 				if (errorInfos[0] === null && msg.pushToRemote !== null) {
-					errorInfos.push(await this.dataSource.pushTag(msg.repo, msg.tagName, msg.pushToRemote));
+					errorInfos.push(...await this.dataSource.pushTag(msg.repo, msg.tagName, [msg.pushToRemote], msg.commitHash, msg.pushSkipRemoteCheck));
 				}
-				this.sendMessage({ command: 'addTag', errors: errorInfos });
+				this.sendMessage({
+					command: 'addTag',
+					repo: msg.repo,
+					tagName: msg.tagName,
+					pushToRemote: msg.pushToRemote,
+					commitHash: msg.commitHash,
+					errors: errorInfos
+				});
 				break;
 			case 'applyStash':
 				this.sendMessage({
@@ -509,7 +516,11 @@ export class GitGraphView extends Disposable {
 			case 'pushTag':
 				this.sendMessage({
 					command: 'pushTag',
-					errors: await this.dataSource.pushTagToMultipleRemotes(msg.repo, msg.tagName, msg.remotes)
+					repo: msg.repo,
+					tagName: msg.tagName,
+					remotes: msg.remotes,
+					commitHash: msg.commitHash,
+					errors: await this.dataSource.pushTag(msg.repo, msg.tagName, msg.remotes, msg.commitHash, msg.skipRemoteCheck)
 				});
 				break;
 			case 'rebase':
@@ -530,6 +541,12 @@ export class GitGraphView extends Disposable {
 				if (!(await this.repoManager.searchWorkspaceForRepos())) {
 					showErrorMessage('No Git repositories were found in the current workspace.');
 				}
+				break;
+			case 'resetFileToRevision':
+				this.sendMessage({
+					command: 'resetFileToRevision',
+					error: await this.dataSource.resetFileToRevision(msg.repo, msg.commitHash, msg.filePath)
+				});
 				break;
 			case 'resetToCommit':
 				this.sendMessage({

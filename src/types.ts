@@ -271,6 +271,7 @@ export interface GitGraphViewConfig {
 export interface GitGraphViewGlobalState {
 	alwaysAcceptCheckoutCommit: boolean;
 	issueLinkingConfig: IssueLinkingConfig | null;
+	pushTagSkipRemoteCheck: boolean;
 }
 
 export interface GitGraphViewWorkspaceState {
@@ -373,6 +374,17 @@ export interface ContextMenuActionsVisibility {
 		readonly reset: boolean;
 		readonly copyHash: boolean;
 		readonly copySubject: boolean;
+	};
+	readonly commitDetailsViewFile: {
+		readonly viewDiff: boolean;
+		readonly viewFileAtThisRevision: boolean;
+		readonly viewDiffWithWorkingFile: boolean;
+		readonly openFile: boolean;
+		readonly markAsReviewed: boolean;
+		readonly markAsNotReviewed: boolean;
+		readonly resetFileToThisRevision: boolean;
+		readonly copyAbsoluteFilePath: boolean;
+		readonly copyRelativeFilePath: boolean;
 	};
 	readonly remoteBranch: {
 		readonly checkout: boolean;
@@ -573,6 +585,9 @@ export interface ResponseWithMultiErrorInfo extends BaseMessage {
 
 export type ErrorInfo = string | null; // null => no error, otherwise => error message
 
+export const enum ErrorInfoExtensionPrefix {
+	PushTagCommitNotOnRemote = 'VSCODE_GIT_GRAPH:PUSH_TAG:COMMIT_NOT_ON_REMOTE:'
+}
 
 /* Request / Response Messages */
 
@@ -594,10 +609,15 @@ export interface RequestAddTag extends RepoRequest {
 	readonly type: TagType;
 	readonly message: string;
 	readonly pushToRemote: string | null; // string => name of the remote to push the tag to, null => don't push to a remote
+	readonly pushSkipRemoteCheck: boolean;
 	readonly force: boolean;
 }
 export interface ResponseAddTag extends ResponseWithMultiErrorInfo {
 	readonly command: 'addTag';
+	readonly repo: string;
+	readonly tagName: string;
+	readonly pushToRemote: string | null;
+	readonly commitHash: string;
 }
 
 export interface RequestApplyStash extends RepoRequest {
@@ -1060,9 +1080,15 @@ export interface RequestPushTag extends RepoRequest {
 	readonly command: 'pushTag';
 	readonly tagName: string;
 	readonly remotes: string[];
+	readonly commitHash: string;
+	readonly skipRemoteCheck: boolean;
 }
 export interface ResponsePushTag extends ResponseWithMultiErrorInfo {
 	readonly command: 'pushTag';
+	readonly repo: string;
+	readonly tagName: string;
+	readonly remotes: string[];
+	readonly commitHash: string;
 }
 
 export const enum RebaseActionOn {
@@ -1097,6 +1123,15 @@ export interface ResponseRenameBranch extends ResponseWithErrorInfo {
 
 export interface RequestRescanForRepos extends BaseMessage {
 	readonly command: 'rescanForRepos';
+}
+
+export interface RequestResetFileToRevision extends RepoRequest {
+	readonly command: 'resetFileToRevision';
+	readonly commitHash: string;
+	readonly filePath: string;
+}
+export interface ResponseResetFileToRevision extends ResponseWithErrorInfo {
+	readonly command: 'resetFileToRevision';
 }
 
 export interface RequestResetToCommit extends RepoRequest {
@@ -1282,6 +1317,7 @@ export type RequestMessage =
 	| RequestRebase
 	| RequestRenameBranch
 	| RequestRescanForRepos
+	| RequestResetFileToRevision
 	| RequestResetToCommit
 	| RequestRevertCommit
 	| RequestSetGlobalViewState
@@ -1345,6 +1381,7 @@ export type ResponseMessage =
 	| ResponseRebase
 	| ResponseRefresh
 	| ResponseRenameBranch
+	| ResponseResetFileToRevision
 	| ResponseResetToCommit
 	| ResponseRevertCommit
 	| ResponseSetGlobalViewState
