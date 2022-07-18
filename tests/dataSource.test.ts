@@ -5327,7 +5327,7 @@ describe('DataSource', () => {
 
 			// Assert
 			expect(result).toBe(null);
-			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['branch', '--delete', 'master'], expect.objectContaining({ cwd: '/path/to/repo' }));
+			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['branch', '-d', 'master'], expect.objectContaining({ cwd: '/path/to/repo' }));
 		});
 
 		it('Should force delete the branch', async () => {
@@ -5339,7 +5339,7 @@ describe('DataSource', () => {
 
 			// Assert
 			expect(result).toBe(null);
-			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['branch', '--delete', '--force', 'master'], expect.objectContaining({ cwd: '/path/to/repo' }));
+			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['branch', '-D', 'master'], expect.objectContaining({ cwd: '/path/to/repo' }));
 		});
 
 		it('Should return an error message thrown by git', async () => {
